@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>DNS Viewer</title>
+	<link rel="stylesheet" href="index.css">
+</head>
+<body>
+	<div class="container" id="main">
+		<div class="column">
+			<div class="column__title">Leases</div>
+			<div class="card" v-repeat="item : staging">
+				<div class="ip">
+					{{item.id}}
+					<span class="hostname">{{item.hostname}}</span>
+				</div>
+				<div class="mac">{{item.mac}} <span class="active" v-if="item.state">active</span></div>
+				<div class="date">{{item.starts}} - {{item.ends}}</div>
+			</div>
+		</div>
+		<div class="column">
+			<div class="column__title">Fixed</div>
+			<div class="card" v-repeat="item : fixed">
+				<div class="ip">
+					{{item.id}}
+					<span class="hostname">{{item.hostname}}</span>
+				</div>
+				<div class="mac">{{item.mac}} <span class="active" v-if="item.state">active</span></div>
+				<div class="button-right"><button v-on="click: onDeleteClick(item)">delete</button></div>
+			</div>
+		</div>
+		<div class="column">
+			<div class="column__title">Set a fixed IP</div>
+			<div class="column__subtitle">(admin area)</div>
+			<div class="simple-form">
+				<div>Hostname<input name="hostname" id="hostname" placeholder="ex. name"></div>
+				<div>MAC Address<input name="mac" id="mac_addr" placeholder="ex. 08:00:27:ef:9a:50"></div>
+				<div>IP Adress<input name="ip" id="ipv4_addr" placeholder="ex. 192.168.1.1"></div>
+				<div class="button-center"><button class="submit" v-on="click: onAddClick">submit</button><div>
+			</div>
+			<hr />
+			<div class="column__title">Restart DHCP</div>
+			<div class="column__subtitle">(admin area)</div>
+			<div class="simple-form">
+				<div class="button-center"><button class="submit" v-on="click: onRestartClick">restart</button><div>
+			</div>
+		</div>
+	</div>
+	<script src="js/vue.min.js"></script>
+	<script src="js/superagent.js"></script>
+	<script>
+		var request = window.superagent;
+		function d2a(dict){
+			var keys = Object.keys(dict);
+			return keys.map(function(key){
+				var o = dict[key];
+				o.id = key;
+				return o;
+			});
+		}
+		var app = new Vue({
+			el: "#main",
+			data: {
+				free_src : {},
+				staging_src: {},
+				fixed_src : {}
+			},
+			computed: {
+				free: function(){
+					return d2a(this.free_src).filter(function(item){
+						return item.binding === "free";
+					});
+				},
+				staging: function(){
+					return d2a(this.staging_src);
+				},
+				fixed: function(){
+					return d2a(this.fixed_src);
+				}
+			},
+			ready: function(){
+				this.update();
+			},
+			methods: {
+				update: function() {
+					var self = this;
+					request.get("data.json", function(err, res){
+						self.free_src = res.body.free;
+						self.fixed_src = res.body.fixed;
+						self.staging_src = res.body.staging;
+					})
+				},
+				onAddClick: function() {
+					hostname = document.querySelector('#hostname').value;
+					mac = document.querySelector('#mac_addr').value;
+					ipv4 = document.querySelector('#ipv4_addr').value;
+					// hostname validation (RFC1123, RFC952)
+					if (!hostname.match(/^(([a-zA-Z]|[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z]|[A-Za-z][A-Za-z0-9\-]*[A-Za-z0-9])$/)) {
+						alert("Warning: Invalid Hostname");
+						return;
+					}
+					if (!mac.match(/([0-9a-fA-F]{2}[:]){5}([0-9a-fA-F]{2})/)) {
+						alert("Warning: Invalid Mac Address");
+						return;
+					}
+					if (!ipv4.match(/192\.168\.1\.([1-9]?[0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/)) {
+						alert("Warning: Invalid IPv4 Address");
+						return;
+					}
+					if (!confirm('固定IP\nHOSTNAME: ' + hostname + '\nMAC: ' + mac + '\nIP' + ipv4 + '\nの設定をします')) {
+						return false;
+					}
+					var self = this;
+					request
+						.post('admin/addfix')
+						.type('form')
+						.send({hostname: hostname, mac: mac, ip: ipv4})
+						.end(function(err, res) {
+							self.update();
+							document.querySelector('#hostname').value = "";
+							document.querySelector('#mac_addr').value = "";
+							document.querySelector('#ipv4_addr').value = "";
+						})
+				},
+				onDeleteClick: function(item) {
+					if (!confirm(item.hostname + 'の設定を削除します')) {
+						return false;
+					}
+					var self = this;
+					request
+						.post('admin/deletefix')
+						.type('form')
+						.send({hostname: item.hostname, mac: item.mac})
+						.end(function(err, res) {
+							self.update();
+						})
+				},
+				onRestartClick: function(item) {
+					if (!confirm('DHCPDを再起動します')) {
+						return false;
+					}
+					request
+						.post('admin/restart')
+						.end(function(err, res) {
+							self.update();
+						})
+				},
+			},
+		});
+	</script>
+	
+</body>
+</html>
